@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
-@Component
+//@Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class RequestResponseLoggingFilter implements WebFilter {
 
@@ -178,18 +178,15 @@ public class RequestResponseLoggingFilter implements WebFilter {
                     AtomicInteger loggedBytes = new AtomicInteger(0); // 记录已记录的字节数
                     byte[] content = new byte[LIMIT_SIZE];
 
-                    Flux<DataBuffer> splitBody = Flux.from(body).concatMap(dataBuffer -> {
-                        // 记录前 2000 字节内容
+                    Flux<DataBuffer> splitBody = Flux.from(body).map(dataBuffer -> {
                         if (loggedBytes.get() < LIMIT_SIZE) {
-                            // 复制当前 DataBuffer，确保原始流不受干扰
-                            DataBuffer copyBuffer = bufferFactory.wrap(dataBuffer.asByteBuffer().asReadOnlyBuffer());
                             int readableBytes = dataBuffer.readableByteCount();
                             int bytesToLog = Math.min(LIMIT_SIZE - loggedBytes.get(), readableBytes);
-                            dataBuffer.read(content, loggedBytes.get(), bytesToLog); // 将数据拷贝到 logged 数组
+                            dataBuffer.read(content, loggedBytes.get(), bytesToLog);
                             loggedBytes.addAndGet(bytesToLog);
-                            return Mono.just(copyBuffer);
+                            dataBuffer.readPosition(0); // 重置读取位置
                         }
-                        return Mono.just(dataBuffer);
+                        return dataBuffer;
                     });
                     return super.writeWith(splitBody)
                             .doFinally(signal -> {
@@ -230,7 +227,7 @@ public class RequestResponseLoggingFilter implements WebFilter {
             // TODO: deflate，br等其它压缩格式 ==
             // 如果是文本内容，直接用 UTF-8 解码
             try {
-                responseResult = new String(content, StandardCharsets.UTF_8);
+                responseResult = new String(content, 0, loggedBytes, StandardCharsets.UTF_8);
             } catch (Exception e) {
                 // 如果无法解码为 UTF-8，则返回二进制数据的提示
                 responseResult = "Binary or unsupported content type";
